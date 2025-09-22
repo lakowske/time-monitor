@@ -6,7 +6,7 @@ import signal
 import sys
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import click
 
@@ -29,7 +29,8 @@ class TimeMonitor:
 
     def setup_signal_handlers(self) -> None:
         """Set up signal handlers for graceful shutdown."""
-        def signal_handler(signum: int, frame) -> None:
+
+        def signal_handler(signum: int, frame: Any) -> None:
             logger.info(f"Received signal {signum}, shutting down gracefully")
             self.running = False
 
@@ -40,6 +41,10 @@ class TimeMonitor:
         """Initialize curses display."""
         logger.debug("Initializing curses display")
         self.stdscr = curses.initscr()
+        if self.stdscr is None:
+            msg = "Failed to initialize curses"
+            logger.error(msg)
+            raise RuntimeError(msg)
         curses.noecho()
         curses.cbreak()
         self.stdscr.keypad(True)
@@ -75,26 +80,31 @@ class TimeMonitor:
 
             while self.running:
                 # Check for 'q' key press to quit
-                key = self.stdscr.getch()
-                if key == ord('q') or key == ord('Q'):
-                    logger.info("User requested quit via 'q' key")
+                if self.stdscr is not None:
+                    key = self.stdscr.getch()
+                    if key == ord("q") or key == ord("Q"):
+                        logger.info("User requested quit via 'q' key")
+                        break
+
+                    # Clear screen and display time
+                    self.stdscr.clear()
+                    time_str = self.format_time()
+
+                    # Get screen dimensions for centering
+                    height, width = self.stdscr.getmaxyx()
+                    y = height // 2
+                    x = max(0, (width - len(time_str)) // 2)
+
+                    # Display time and instructions
+                    self.stdscr.addstr(y, x, time_str)
+                    self.stdscr.addstr(height - 2, 0, "Press 'q' to quit")
+
+                    # Refresh display
+                    self.stdscr.refresh()
+                else:
+                    # If stdscr is None, we can't continue
+                    logger.error("stdscr is None, cannot continue")
                     break
-
-                # Clear screen and display time
-                self.stdscr.clear()
-                time_str = self.format_time()
-
-                # Get screen dimensions for centering
-                height, width = self.stdscr.getmaxyx()
-                y = height // 2
-                x = max(0, (width - len(time_str)) // 2)
-
-                # Display time and instructions
-                self.stdscr.addstr(y, x, time_str)
-                self.stdscr.addstr(height - 2, 0, "Press 'q' to quit")
-
-                # Refresh display
-                self.stdscr.refresh()
 
                 # Sleep for the specified interval
                 time.sleep(self.update_interval)
@@ -110,20 +120,9 @@ class TimeMonitor:
             logger.info("Time monitor shutdown complete")
 
 
-@click.command()
-@click.option(
-    "--interval",
-    "-i",
-    type=float,
-    default=0.05,
-    help="Update interval in seconds (default: 0.05 = 50ms)"
-)
-@click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    help="Enable verbose logging"
-)
+@click.command()  # type: ignore[misc]
+@click.option("--interval", "-i", type=float, default=0.05, help="Update interval in seconds (default: 0.05 = 50ms)")  # type: ignore[misc]
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")  # type: ignore[misc]
 def main(interval: float, verbose: bool) -> None:
     """Time monitor CLI that displays current time with configurable update interval.
 
@@ -138,11 +137,11 @@ def main(interval: float, verbose: bool) -> None:
     log_level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+        format="%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s",
         handlers=[
-            logging.FileHandler('time-monitor.log'),
-            logging.StreamHandler(sys.stderr) if verbose else logging.NullHandler()
-        ]
+            logging.FileHandler("time-monitor.log"),
+            logging.StreamHandler(sys.stderr) if verbose else logging.NullHandler(),
+        ],
     )
 
     logger.info(f"Starting time monitor CLI - interval: {interval}s, verbose: {verbose}")
